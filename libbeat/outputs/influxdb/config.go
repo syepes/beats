@@ -7,7 +7,6 @@ import (
 )
 
 type influxdbConfig struct {
-	LoadBalance   bool              `config:"loadbalance"`
 	Timeout       time.Duration     `config:"timeout"`
 	BulkMaxSize   int               `config:"bulk_max_size"`
 	MaxRetries    int               `config:"max_retries"       validate:"min=-1"`
@@ -30,7 +29,6 @@ type backoff struct {
 
 var (
 	defaultConfig = influxdbConfig{
-		LoadBalance: false,
 		Timeout:     5 * time.Second,
 		BulkMaxSize: 2048,
 		MaxRetries:  3,
@@ -40,8 +38,8 @@ var (
 			Max:  60 * time.Second,
 		},
 		Addr:          "http://localhost:8086",
-		Db:            "test_db",
-		Measurement:   "test",
+		Db:            "db",
+		Measurement:   "metric",
 		TimePrecision: "s",
 	}
 )

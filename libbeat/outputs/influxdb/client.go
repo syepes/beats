@@ -26,17 +26,7 @@ type client struct {
 	timeField     string
 }
 
-func newClient(
-	observer outputs.Observer,
-	addr string,
-	user string,
-	pass string,
-	db string,
-	measurement string,
-	timePrecision string,
-	tagFields []string,
-	timeField string,
-) *client {
+func newClient(observer outputs.Observer, addr string, user string, pass string, db string, measurement string, timePrecision string, tagFields []string, timeField string) *client {
 	hash := make(map[string]int)
 	for _, f := range tagFields {
 		if f != "" {
@@ -60,43 +50,36 @@ func newClient(
 	return c
 }
 
-func (c *client) Connect() error {
-	var err error
-	debugf("connect")
+func (c *client) Connect() (err error) {
+	logp.Debug("influxdb", "Connect")
 
-	c.conn, err = influxdb.NewHTTPClient(influxdb.HTTPConfig{
-		Addr:     c.addr,
-		Username: c.username,
-		Password: c.password,
-	})
+	c.conn, err = influxdb.NewHTTPClient(influxdb.HTTPConfig{Addr: c.addr, Username: c.username, Password: c.password})
 	if err != nil {
 		logp.Err("Failed to create HTTP conn to influxdb: %v", err)
 		return err
 	}
 
 	logp.Info("Client to influxdb has created: %v", c.addr)
-
 	return err
 }
 
 func (c *client) Close() error {
-	debugf("close connection")
+	logp.Debug("influxdb", "Close connection")
 	return c.conn.Close()
 }
 
 func (c *client) Publish(batch publisher.Batch) error {
 	if c == nil {
-		panic("no client")
+		panic("No client")
 	}
 	if batch == nil {
-		panic("no batch")
+		panic("No batch")
 	}
 
 	events := batch.Events()
 	c.observer.NewBatch(len(events))
 	failed, err := c.publish(events)
 	if err != nil {
-		logp.Err("publish failed:", err)
 		batch.RetryEvents(failed)
 		c.observer.Failed(len(failed))
 		return err
@@ -109,7 +92,6 @@ func (c *client) publish(data []publisher.Event) ([]publisher.Event, error) {
 	var err error
 
 	serialized := c.serializeEvents(data)
-
 	dropped := len(data) - len(serialized)
 	c.observer.Dropped(dropped)
 	if dropped > 0 {
@@ -133,12 +115,11 @@ func (c *client) publish(data []publisher.Event) ([]publisher.Event, error) {
 	err = c.conn.Write(bp)
 
 	if err != nil {
-		logp.Err("Failed to write to influxdb: %v", err)
+		logp.Err("Failed to write %d records to influxdb: %v", len(data[:len(serialized)]), err)
 		for _, event := range data[:len(serialized)] {
-			logp.Info("Content: ", event.Content)
+			logp.Debug("influxdb", "Failed record: %v", event.Content)
 		}
 		return data[:len(serialized)], err
-
 	}
 
 	c.observer.Acked(len(serialized))
@@ -187,15 +168,12 @@ func (c *client) scanFields(originFields map[string]interface{}) (*string, map[s
 	return measurement, tags, fields
 }
 
-func (c *client) serializeEvents(
-	data []publisher.Event,
-) []*influxdb.Point {
+func (c *client) serializeEvents(data []publisher.Event) []*influxdb.Point {
 	to := make([]*influxdb.Point, 0, len(data))
 
 	for _, d := range data {
 		t := d.Content.Timestamp
 		if timestamp, ok := d.Content.Fields[c.timeField]; ok {
-
 			if v, ok := timestamp.(int64); ok {
 				if c.timePrecision == "s" {
 					t = time.Unix(v, 0)
@@ -208,16 +186,13 @@ func (c *client) serializeEvents(
 		}
 
 		measurement, tags, fields := c.scanFields(d.Content.Fields)
-		debugf("measurement: %s\n", *measurement)
-		debugf("tags: %v\n", tags)
-		debugf("fields: %v\n", fields)
-		debugf("ts: %s\n", t)
+		logp.Debug("influxdb", "measurement: %s, tags: %v, fields: %v, ts:", *measurement, tags, fields, t)
 
 		if measurement != nil {
 			point, err := influxdb.NewPoint(*measurement, tags, fields, t)
 			if err != nil {
 				logp.Err("Encoding event failed with error: %v", err)
-				goto end
+				return to
 			}
 			to = append(to, point)
 
@@ -225,13 +200,12 @@ func (c *client) serializeEvents(
 			point, err := influxdb.NewPoint(c.measurement, tags, fields, t)
 			if err != nil {
 				logp.Err("Encoding event failed with error: %v", err)
-				goto end
+				return to
 			}
 			to = append(to, point)
 		}
 	}
 
-end:
 	return to
 }
 
